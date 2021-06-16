@@ -1,0 +1,8 @@
+*.log
+inventory/inventory.yml
+junk.*
+certs/
+images.txt
+lsr/
+output
+artifacts/

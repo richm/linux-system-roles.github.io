@@ -1,0 +1,41 @@
+# these are the preliminary settings that must be applied first
+# all of the settings are set in inventory/group_vars/HOSTGROUP.yml
+- hosts: all
+  roles:
+    - fedora.linux_system_roles.kernel_settings
+    - fedora.linux_system_roles.crypto_policies
+    - fedora.linux_system_roles.timesync
+    - fedora.linux_system_roles.kdump
+    - fedora.linux_system_roles.tlog
+    - fedora.linux_system_roles.sshd
+    - fedora.linux_system_roles.vpn
+    - fedora.linux_system_roles.network
+
+# deploy x509 certs/keys
+- hosts: all
+  tasks:
+    - name: create and deploy certs and keys
+      include_tasks: create_certs_keys.yml
+
+    - name: configure firewall
+      include_tasks: firewall.yml
+
+# set up logging servers
+- hosts: logging_servers
+  roles:
+    - fedora.linux_system_roles.logging
+
+# set up logging clients
+- hosts: all:!logging_servers
+  roles:
+    - fedora.linux_system_roles.logging
+
+# set up metrics clients
+- hosts: all:!metrics_servers
+  roles:
+    - fedora.linux_system_roles.metrics
+
+# set up metrics servers
+- hosts: metrics_servers
+  roles:
+    - fedora.linux_system_roles.metrics

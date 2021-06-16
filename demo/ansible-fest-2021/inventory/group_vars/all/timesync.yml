@@ -1,0 +1,4 @@
+timesync_ntp_servers:
+  - hostname: clock.corp.redhat.com
+    iburst: yes
+    maxpoll: 10
