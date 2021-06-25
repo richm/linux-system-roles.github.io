@@ -1,0 +1,103 @@
+- hosts: all
+  vars:
+    lsr_giturl: https://gitlab.cee.redhat.com/rmeggins/ansible-fest-2021
+    system_roles_ee_url: quay.io/linux-system-roles/ee_linux_system_roles:latest
+    system_roles_ee_name: system_roles_ee
+    org_name: system_roles
+    project_name: system_roles
+    inventory_name: system_roles
+    inventory_source_name: system_roles
+    credential_name: system_roles
+    credential_path: ansible_private_key
+    job_template_name: system_roles
+    lsr_user: lsr
+  tasks:
+    - name: ensure awxkit
+      command: python3.8 -mpip install -U --user awxkit
+
+    - name: ensure token
+      command: sudo awx-manage create_oauth2_token --user=admin
+      register: awx_token
+
+    - name: ensure tower cli config
+      copy:
+        dest: /home/{{ lsr_user }}/.tower_cli.cfg
+        content: |
+          [general]
+          host = https://localhost
+          verify_ssl = false
+          oauth_token = {{ awx_token.stdout }}
+
+    - name: ensure org
+      awx.awx.organization:
+        name: "{{ org_name }}"
+        description: system roles org
+
+    - name: ensure execution environment
+      awx.awx.execution_environment:
+        name: "{{ system_roles_ee_name }}"
+        organization: "{{ org_name }}"
+        image: "{{ system_roles_ee_url }}"
+
+    - name: ensure project
+      awx.awx.project:
+        name: "{{ project_name }}"
+        organization: "{{ org_name }}"
+        description: system roles project - playbooks and inventory
+        scm_clean: true
+        scm_type: git
+        scm_url: "{{ lsr_giturl }}"
+        scm_branch: master
+        default_environment: "{{ system_roles_ee_name }}"
+        wait: true
+
+    - name: ensure project is up-to-date
+      awx.awx.project_update:
+        project: "{{ project_name }}"
+        wait: true
+
+    - name: ensure inventory
+      awx.awx.inventory:
+        name: "{{ inventory_name }}"
+        organization: "{{ org_name }}"
+        description: system roles inventory
+
+    - name: ensure inventory source
+      awx.awx.inventory_source:
+        name: "{{ inventory_source_name }}"
+        inventory: "{{ inventory_name }}"
+        organization: "{{ org_name }}"
+        description: system roles inventory source
+        overwrite: true
+        source: scm
+        source_path: inventory/
+        source_project: "{{ project_name }}"
+        update_on_project_update: true
+
+    - name: Update a single inventory source
+      awx.awx.inventory_source_update:
+        name: "{{ inventory_source_name }}"
+        inventory: "{{ inventory_name }}"
+        organization: "{{ org_name }}"
+
+    - name: ensure ssh credentials
+      awx.awx.credential:
+        name: "{{ credential_name }}"
+        credential_type: Machine
+        organization: "{{ org_name }}"
+        description: system roles credential
+        inputs:
+          ssh_key_data: "{{ lookup('file', credential_path) }}"
+
+    - name: ensure job template
+      awx.awx.job_template:
+        name: "{{ job_template_name }}"
+        description: system roles job template
+        organization: "{{ org_name }}"
+        project: "{{ project_name }}"
+        inventory: "{{ inventory_name }}"
+        playbook: playbook/playbook.yml
+        verbosity: 2
+        job_type: run
+        credentials:
+          - "{{ credential_name }}"

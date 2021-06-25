@@ -16,8 +16,8 @@ declare -A name2ip=([machineA]="" [machineB]="" [machineC]="")
 declare -A name2fqdn=([machineA]="" [machineB]="" [machineC]="")
 ANSIBLE_USER=${ANSIBLE_USER:-lsr}
 export ANSIBLE_STDOUT_CALLBACK=debug
-CONTAINER_IMAGE=${CONTAINER_IMAGE:-lsr-aee:2.10}
-PLAYBOOK_DIR=${PLAYBOOK_DIR:-playbooks}
+CONTAINER_IMAGE=${CONTAINER_IMAGE:-quay.io/linux-system-roles/ee_linux_system_roles:latest}
+PLAYBOOK_DIR=${PLAYBOOK_DIR:-playbook}
 INVENTORY_DIR=${INVENTORY_DIR:-inventory}
 INVENTORY=${INVENTORY:-$INVENTORY_DIR/inventory.yml}
 
@@ -89,6 +89,7 @@ cleanup_old_machine_and_stack() {
         wait_n_d() { nova show $1 > /dev/null ; }
         wait_until_cmd wait_n_d $mach 400 20
     fi
+    rm -f ansible_private_key
 }
 
 get_stack_out_val() {
@@ -120,8 +121,9 @@ wait_for_stack_create() {
 }
 
 get_cloud_init_finished() {
-    ansible -vv -i "$INVENTORY_DIR" "$1" -m shell -a "tail -1 /var/log/cloud-init-output.log | grep '^Cloud-init.* finished at '" 
-    #ansible-runner run -vv -i "$INVENTORY_DIR" $1 -m shell -a "tail -1 /var/log/cloud-init-output.log | grep '^Cloud-init.* finished at '" 
+    ansible --private-key ansible_private_key -vv \
+        -i "$INVENTORY_DIR" "$1" -m shell \
+        -a "tail -1 /var/log/cloud-init-output.log | grep '^Cloud-init.* finished at '"
 }
 
 create_stack_and_machs_get_external_ips() {
@@ -134,11 +136,14 @@ create_stack_and_machs_get_external_ips() {
     for host in ${!name2ip[*]}; do
         wait_until_cmd get_stack_out_val "$stack ${host}_ip" 400
     done
+    get_stack_out_val "$stack" ansible_private_key > ansible_private_key
+    chmod 0600 ansible_private_key
 }
 
 get_fqdn() {
     # use getent hosts $ip to get the fqdn used by the host
-    ssh -n -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no "$ANSIBLE_USER"@"$1" "getent hosts $1" | \
+    ssh -n -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no \
+        "$ANSIBLE_USER"@"$1" "getent hosts $1" | \
         awk -v ip="$1" '$0 ~ "^" ip " " {print $2; exit 0}; {exit 1}'
 }
 
@@ -215,8 +220,15 @@ run_ansible() {
     if [ ! -d artifacts ]; then mkdir -p artifacts; fi
     artifact_fmt='artifacts/{playbook_name}-{ts_utc}.json'
     rm -f artifacts/ansible.log
+    if [ ! -f ansible_private_key ]; then
+        if [ -z "$stack" ] ; then
+            stack=`get_stack $STACK_NAME`
+        fi
+        get_stack_out_val "$stack" ansible_private_key > ansible_private_key
+        chmod 0600 ansible_private_key
+    fi
     ANSIBLE_LOG_PATH=artifacts/ansible.log \
-    ansible-navigator run "$pb" -vv \
+    ansible-navigator run "$pb" -vv --private-key ansible_private_key \
         --la false --lf "$(pwd)/artifacts/ansible-navigator.log" \
         --pas "$artifact_fmt"  \
         --ce "$CONTAINER_ENGINE" --ee true --eei "$CONTAINER_IMAGE" \
@@ -274,6 +286,7 @@ if [ "$START_STEP" = inventory ] ; then
     if [ -z "$stack" ] ; then
         stack=`get_stack $STACK_NAME`
     fi
+
     for host in ${!name2ip[*]} ; do
         if [ -z "${name2ip[$host]}" ]; then
             name2ip[$host]=$(get_stack_out_val $stack ${host}_ip)
@@ -284,7 +297,6 @@ if [ "$START_STEP" = inventory ] ; then
             name2fqdn[$host]=$(get_fqdn "${name2ip[$host]}")
         fi
     done
-    disk_path=$(get_stack_out_val $stack data_volume_path)
     if [ ! -d "$INVENTORY_DIR" ]; then mkdir -p "$INVENTORY_DIR"; fi
     make_inventory > $INVENTORY
     START_STEP=wait_for_cloud_init
@@ -305,7 +317,7 @@ fi
 
 if [ "$START_STEP" = extra_setup ] ; then
     rm -f ansible.log
-    run_ansible "$PLAYBOOK_DIR/extra_setup.yml"
+    run_ansible extra_setup.yml
     START_STEP=run_ansible
 fi
 if [ "$STOP_STEP" = extra_setup ] ; then
