@@ -18,7 +18,7 @@ fields described below.
 
 A system role provides an argument specification in the standard `meta/argument_specs.yml`, but this format
 is limited for the way system roles use arguments.  In addition, system roles can have "return values"
-which are global variables set by the role.  For example, many system roles return
+which are host-scoped variables set by the role.  For example, many system roles return
 information about the system, or return a boolean variable to indicate that the user of the
 role must reboot the system in order for the changes to be applied.  While these are not
 the same as return values from an Ansible module, they serve much the same purpose.
@@ -75,9 +75,10 @@ that value must validate against at least one alternative.
 #### `return_values`
 
 This is a `dict` in the same format as [Ansible module RETURN block](https://docs.ansible.com/projects/ansible/latest/dev_guide/developing_modules_documenting.html#return-block)
-Each key is the name of a global variable that the role can set with `set_fact`.  The usual convention
-for the role is to prefix each one by the name of the role - for example `bootloader_facts`.  If this is
-omitted from the spec, the role has no return values.
+Each key is the name of a host-scoped variable that the role can set with `set_fact`.
+Because `set_fact` is host-scoped, the value may differ when the role runs on multiple hosts.
+The usual convention for the role is to prefix each one by the name of the role - for example `bootloader_facts`.
+If this is omitted from the spec, the role has no return values.
 
 ## Sample specification
 
@@ -99,7 +100,7 @@ argument_specs:
     author:
       - Linux System Roles contributors
     options:
-      my_service_port:
+      rolename_port:
         description:
           - TCP port on which the service listens.
         type: int
@@ -107,18 +108,18 @@ argument_specs:
         default: 443
         allowed_ranges: "1-65535"
 
-      my_service_bind_address:
+      rolename_bind_address:
         description:
           - IPv4 address or DNS name on which the service listens.
         type: str
         required: true
         aliases:
-          - my_service_listen_address
+          - rolename_listen_address
         allowed_patterns:
-          - '^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$'
+          - '^(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)$'
           - '^(?=.{1,253}$)(?:[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?\.)*[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?$'
 
-      my_service_endpoint:
+      rolename_endpoint:
         description:
           - TCP port or Unix-domain socket used by a local client.
         type: int
@@ -127,7 +128,7 @@ argument_specs:
           - type: path
             allowed_patterns: '^/(?:[^/]+/)*[^/]+$'
 
-      my_service_backends:
+      rolename_backends:
         description:
           - Backend server definitions.
         type: list
@@ -190,17 +191,19 @@ argument_specs:
           address:
             - port
 
-      my_service_legacy_mode:
+      rolename_legacy_mode:
         description:
           - Deprecated compatibility mode.
         type: bool
         aliases:
-          - my_service_compatibility_mode
+          - rolename_compatibility_mode
+          - rolename_old_compatibility_mode
         deprecated_aliases:
-          - name: my_service_old_compatibility_mode
+          - name: rolename_old_compatibility_mode
             version: "3.0.0"
             collection_name: example.service
         removed_in_version: "4.0.0"
+        removed_from_collection: example.service
 
     return_values:
       rolename_reboot_required:
